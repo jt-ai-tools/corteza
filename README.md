@@ -20,6 +20,8 @@
   </div>
 </h1>
 
+English | [繁體中文](./README_zh_TW.md)
+
 The Corteza low-code platform lets you build and iterate CRM, business process and other structured data apps fast, create intelligent business process workflows and connect with almost any data source.
 All with the flexibility, freedom and control you get from a 100% open-source platform written on modern technologies maintained by [Planet Crust](https://www.planetcrust.com/), its founder.
 
