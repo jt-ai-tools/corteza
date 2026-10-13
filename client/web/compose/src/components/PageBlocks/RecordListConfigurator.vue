@@ -171,8 +171,7 @@
             <field-picker
               :module="recordListModule"
               :fields.sync="options.editFields"
-              :field-subset="options.fields"
-              disable-system-fields
+              :field-subset="editableFieldSubset"
               style="height: 50vh;"
             />
           </b-form-group>
@@ -288,6 +287,22 @@
                 <b-form-text class="text-secondary small">
                   {{ $t('recordList.record.searchableFieldsFootnote') }}
                 </b-form-text>
+              </b-form-group>
+            </b-col>
+
+            <b-col
+              v-if="!options.hideSearch"
+              lg="6"
+              cols="12"
+            >
+              <b-form-group
+                :label="$t('recordList.record.searchSubmitMode')"
+                label-class="text-primary"
+              >
+                <b-form-select
+                  v-model="options.searchSubmitMode"
+                  :options="searchSubmitModeOptions"
+                />
               </b-form-group>
             </b-col>
           </b-row>
@@ -1055,6 +1070,13 @@ export default {
       ]
     },
 
+    searchSubmitModeOptions () {
+      return [
+        { value: 'submit', text: this.$t('recordList.record.searchOnSubmit') },
+        { value: 'typing', text: this.$t('recordList.record.searchOnType') },
+      ]
+    },
+
     recordListModule () {
       if (this.options.moduleID !== NoID) {
         return this.getModuleByID(this.options.moduleID)
@@ -1113,7 +1135,7 @@ export default {
     },
 
     isInlineEditorAllowed () {
-      return this.recordListModule && (this.onRecordPage || this.options.editable)
+      return !!this.recordListModule
     },
 
     summaryMetrics () {
@@ -1138,6 +1160,19 @@ export default {
         ...this.recordListModule.systemFields(),
       ].filter(f => f.isQueryable)
     },
+
+    editableFieldSubset () {
+      if (!this.recordListModule) {
+        return []
+      }
+
+      return this.options.fields.length
+        ? this.options.fields
+        : [
+            ...this.recordListModule.fields,
+            this.recordListModule.systemFields().find(f => f.name === 'ownedBy'),
+          ]
+    },
   },
 
   watch: {
@@ -1155,14 +1190,14 @@ export default {
     },
 
     'options.editable' (value) {
-      this.options.editFields = []
+      this.options.editFields = value ? [...this.editableFieldSubset] : []
       this.options.positionField = undefined
 
       if (value) {
-        this.options.hideRecordEditButton = true
-        this.options.hideRecordViewButton = true
         let f = null
-        if (this.module && this.module.moduleID) f = this.recordListModule.fields.find(({ options: { moduleID } }) => moduleID === this.module.moduleID)
+        if (this.module && this.module.moduleID) {
+          f = this.recordListModule.fields.find(({ options: { moduleID } }) => moduleID === this.module.moduleID)
+        }
         this.options.refField = f ? f.name : undefined
       } else {
         this.options.refField = undefined

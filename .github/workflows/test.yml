@@ -98,7 +98,7 @@ jobs:
         run: make test.integration
 
   notify:
-    if: failure()
+    if: "${{ github.repository == 'cortezaproject/corteza' && (failure()) }}"
     name: "Send matrix testing notification"
     runs-on: ubuntu-22.04
     needs: [ server-test, client-web-test, lib-test ]

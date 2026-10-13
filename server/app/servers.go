@@ -90,7 +90,7 @@ func (app *CortezaApp) mountHttpRoutes(r chi.Router) {
 			r.Route("/websocket", app.WsServer.MountRoutes)
 
 			if app.Opt.Discovery.Enabled {
-				r.Route("/discovery", discoveryRest.MountRoutes())
+				r.Route("/discovery", discoveryRest.MountRoutes(app.Opt.Discovery))
 			}
 
 			if app.Opt.Federation.Enabled {
@@ -156,5 +156,8 @@ func (app *CortezaApp) mountHttpRoutes(r chi.Router) {
 
 	func() {
 		r.Handle("/.well-known/openid-configuration", app.AuthService.WellKnownOpenIDConfiguration())
+
+		// clients discover the document under the issuer URL (AUTH_BASE_URL) that ends with /auth
+		r.Handle("/auth/.well-known/openid-configuration", app.AuthService.WellKnownOpenIDConfiguration())
 	}()
 }

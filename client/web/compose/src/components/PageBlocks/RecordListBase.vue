@@ -29,41 +29,37 @@
           class="d-flex align-items-center justify-content-between gap-1"
         >
           <div class="d-flex align-items-center flex-grow-1 flex-wrap flex-fill-child gap-1">
-            <template v-if="recordListModule.canCreateRecord">
-              <template v-if="inlineEditing">
-                <b-button
-                  v-if="!options.hideAddButton"
-                  data-test-id="button-add-record"
-                  variant="primary"
-                  size="lg"
-                  @click="addInlineRecord()"
-                >
-                  + {{ $t('recordList.addRecord') }}
-                </b-button>
-              </template>
+            <template v-if="recordListModule.canCreateRecord && !options.hideAddButton">
+              <b-button
+                v-if="inlineEditing"
+                data-test-id="button-add-record"
+                variant="primary"
+                size="lg"
+                @click="addInlineRecord()"
+              >
+                + {{ $t('recordList.addRecord') }}
+              </b-button>
 
-              <template v-else-if="!inlineEditing && (recordPageID || options.allRecords)">
-                <b-button
-                  v-if="!options.hideAddButton"
-                  data-test-id="button-add-record"
-                  variant="primary"
-                  size="lg"
-                  @click="handleAddRecord()"
-                >
-                  + {{ $t('recordList.addRecord') }}
-                </b-button>
-
-                <importer-modal
-                  v-if="!options.hideImportButton"
-                  :module="recordListModule"
-                  :namespace="namespace"
-                  @importSuccessful="onImportSuccessful"
-                />
-              </template>
+              <b-button
+                v-else-if="recordPageID || options.allRecords"
+                data-test-id="button-add-record"
+                variant="primary"
+                size="lg"
+                @click="handleAddRecord()"
+              >
+                + {{ $t('recordList.addRecord') }}
+              </b-button>
             </template>
 
+            <importer-modal
+              v-if="recordListModule.canCreateRecord && !options.hideImportButton"
+              :module="recordListModule"
+              :namespace="namespace"
+              @importSuccessful="onImportSuccessful"
+            />
+
             <exporter-modal
-              v-if="options.allowExport && !inlineEditing"
+              v-if="options.allowExport"
               :module="recordListModule"
               :filter="filter.query"
               :selection="selected"
@@ -119,7 +115,9 @@
             <c-input-search
               :value="query"
               :placeholder="$t('general.label.search')"
-              submittable
+              :submittable="searchSubmittable"
+              :debounce="searchSubmittable ? 0 : 300"
+              @input="onSearchInput"
               @search="handleSearch"
             />
           </div>
@@ -130,104 +128,123 @@
           class="d-flex align-items-start flex-wrap gap-1"
         >
           <div
-            v-if="groupRecordListFilter.length"
+            v-if="groupedByConnector.length"
             class="d-flex align-items-center flex-wrap gap-2"
           >
             <div
-              v-for="(filterGroup, groupIdx) in groupRecordListFilter"
-              :key="groupIdx"
+              v-for="(segment, segmentIdx) in groupedByConnector"
+              :key="`segment-${segmentIdx}`"
               class="d-flex align-items-center gap-2"
             >
-              <div class="d-flex flex-wrap align-items-center border rounded p-1 gap-1 flex-wrap">
-                <div
-                  v-for="(f, filterIndex) in filterGroup.filter"
-                  :key="filterIndex"
-                  class="active-filter d-flex align-items-center rounded gap-1 pl-2 pr-1 py-1 bg-light"
+              <div
+                class="d-flex flex-wrap align-items-center gap-1 border rounded p-1"
+              >
+                <template
+                  v-for="(filterGroup, groupIdx) in segment.groups"
                 >
-                  <span class="field-label">
-                    {{ f.label || f.name }}
-                  </span>
+                  <div
+                    :key="`group-${filterGroup.originalIndex}`"
+                    class="d-flex flex-wrap align-items-center gap-1"
+                  >
+                    <div
+                      v-for="(f, filterIndex) in filterGroup.filter"
+                      :key="filterIndex"
+                      class="active-filter d-flex align-items-center rounded gap-1 pl-2 pr-1 py-1 bg-light"
+                    >
+                      <span class="field-label">
+                        {{ f.label || f.name }}
+                      </span>
 
-                  <span>
-                    {{ $t(`recordList.filter.operatorLabels.${formatActiveFilterOperator(f.operator)}`) }}
-                  </span>
+                      <span>
+                        {{ $t(`recordList.filter.operatorLabels.${formatActiveFilterOperator(f.operator)}`) }}
+                      </span>
 
-                  <template v-if="f.value">
-                    <template v-if="isBetweenOperator(f.operator)">
-                      <field-viewer
-                        v-if="f.value.start"
-                        value-only
-                        :field="f.field"
-                        :record="f.record[0]"
-                        :module="recordListModule"
-                        :namespace="namespace"
-                        class="font-weight-bold text-primary"
-                      />
+                      <template v-if="f.value">
+                        <template v-if="isBetweenOperator(f.operator)">
+                          <field-viewer
+                            v-if="f.value.start"
+                            value-only
+                            :field="f.field"
+                            :record="f.record[0]"
+                            :module="recordListModule"
+                            :namespace="namespace"
+                            class="font-weight-bold text-primary"
+                          />
+
+                          <span
+                            v-else
+                            class="text-primary font-weight-bold"
+                          >
+                            {{ !f.value.start ? $t('recordList.filter.nil') : '' }}
+                          </span>
+
+                          <span class="text-lowercase">
+                            {{ $t('recordList.filter.conditions.and') }}
+                          </span>
+
+                          <field-viewer
+                            v-if="f.value.end"
+                            value-only
+                            :field="f.field"
+                            :record="f.record[1]"
+                            :module="recordListModule"
+                            :namespace="namespace"
+                            class="font-weight-bold text-primary"
+                          />
+
+                          <span
+                            v-else
+                            class="text-primary font-weight-bold"
+                          >
+                            {{ !f.value.end ? $t('recordList.filter.nil') : '' }}
+                          </span>
+                        </template>
+
+                        <field-viewer
+                          v-else
+                          value-only
+                          :field="f.field"
+                          :record="f.record"
+                          :module="recordListModule"
+                          :namespace="namespace"
+                          class="font-weight-bold text-primary"
+                        />
+                      </template>
 
                       <span
                         v-else
                         class="text-primary font-weight-bold"
                       >
-                        {{ !f.value.start ? $t('recordList.filter.nil') : '' }}
+                        {{ $t('recordList.filter.nil') }}
                       </span>
 
-                      <span
-                        class="text-lowercase"
+                      <b-button
+                        variant="light"
+                        class="d-flex align-items-center p-1 active-filter-close-btn bg-transparent border-0"
+                        @click="removeFilter(filterGroup.originalIndex, filterIndex)"
                       >
-                        {{ $t('recordList.filter.conditions.and') }}
-                      </span>
+                        <font-awesome-icon
+                          :icon="['fas', 'times']"
+                        />
+                      </b-button>
+                    </div>
+                  </div>
 
-                      <field-viewer
-                        v-if="f.value.end"
-                        value-only
-                        :field="f.field"
-                        :record="f.record[1]"
-                        :module="recordListModule"
-                        :namespace="namespace"
-                        class="font-weight-bold text-primary"
-                      />
-
-                      <span
-                        v-else
-                        class="text-primary font-weight-bold"
-                      >
-                        {{ !f.value.end ? $t('recordList.filter.nil') : '' }}
-                      </span>
-                    </template>
-
-                    <field-viewer
-                      v-else
-                      value-only
-                      :field="f.field"
-                      :record="f.record"
-                      :module="recordListModule"
-                      :namespace="namespace"
-                      class="font-weight-bold text-primary"
-                    />
-                  </template>
-
+                  <!-- AND connector between groups in same segment -->
                   <span
-                    v-else
-                    class="text-primary font-weight-bold"
+                    v-if="groupIdx < segment.groups.length - 1"
+                    :key="`and-${filterGroup.originalIndex}`"
+                    class="text-secondary text-uppercase"
                   >
-                    {{ $t('recordList.filter.nil') }}
+                    {{ $t('recordList.filter.conditions.and') }}
                   </span>
-
-                  <b-button
-                    variant="light"
-                    class="d-flex align-items-center p-1 active-filter-close-btn bg-transparent border-0"
-                    @click="removeFilter(groupIdx, filterIndex) "
-                  >
-                    <font-awesome-icon
-                      :icon="['fas', 'times']"
-                    />
-                  </b-button>
-                </div>
+                </template>
               </div>
 
+              <!-- OR connector between segments -->
               <span
-                v-if="groupIdx < groupRecordListFilter.length - 1"
-                class="text-secondary"
+                v-if="segment.connector"
+                class="text-secondary text-uppercase"
               >
                 {{ $t('recordList.filter.conditions.or') }}
               </span>
@@ -260,15 +277,18 @@
         </div>
 
         <div
-          v-if="options.selectable && selected.length"
+          v-if="(options.selectable && selected.length) || (inlineEditing && dirtyRecordsCount > 1)"
           class="d-flex align-items-center flex-wrap align-items-center"
         >
-          <div class="mr-1">
+          <div
+            v-if="options.selectable && selected.length"
+            class="mr-1"
+          >
             {{ selectedRecordsDisplayText }}
           </div>
 
           <b-button
-            v-if="!inlineEditing"
+            v-if="!inlineEditing && options.selectable && selected.length"
             size="sm"
             variant="outline-extra-light"
             class="text-primary border-0"
@@ -279,12 +299,61 @@
 
           <div class="d-flex align-items-center ml-auto gap-1">
             <automation-buttons
-              class="d-inline m-0 mr-2"
+              v-if="options.selectable && selected.length"
+              class="d-inline m-0"
               :buttons="options.selectionButtons"
               :module="recordListModule"
               :extra-event-args="{ selected, filter}"
               v-bind="$props"
               @refresh="refresh()"
+            />
+
+            <b-spinner
+              v-if="processingDirtyRecords === 'save'"
+              small
+              class="text-secondary"
+            />
+
+            <b-button
+              v-else-if="inlineEditing && dirtyRecordsCount > 0"
+              v-b-tooltip.noninteractive.hover="{ title: $t('recordList.tooltip.saveChanges'), boundary: 'body', delay: { show: 300 } }"
+              variant="outline-extra-light"
+              class="d-flex align-items-center justify-content-center border-0"
+              style="width: 2rem; height: 2rem;"
+              :disabled="!!processingDirtyRecords"
+              @click="handleSaveDirtyRecords()"
+            >
+              <font-awesome-icon
+                :icon="['fas', 'check']"
+                class="text-primary"
+              />
+            </b-button>
+
+            <b-spinner
+              v-if="processingDirtyRecords === 'deny'"
+              small
+              class="text-secondary"
+            />
+
+            <b-button
+              v-else-if="inlineEditing && dirtyRecordsCount > 0"
+              v-b-tooltip.noninteractive.hover="{ title: $t('recordList.tooltip.discardChanges'), boundary: 'body', delay: { show: 300 } }"
+              variant="outline-extra-light"
+              class="d-flex align-items-center justify-content-center border-0"
+              style="width: 2rem; height: 2rem;"
+              :disabled="!!processingDirtyRecords"
+              @click="handleDenyDirtyRecords()"
+            >
+              <font-awesome-icon
+                :icon="['fas', 'times']"
+                class="text-secondary"
+              />
+            </b-button>
+
+            <div
+              v-if="inlineEditing && dirtyRecordsCount > 0 && options.selectable && selected.length && ((options.bulkRecordEditEnabled && canUpdateSelectedRecords && !showingDeletedRecords) || (canDeleteSelectedRecords && !areAllRowsDeleted))"
+              class="border-left mx-1"
+              style="height: 1.5rem;"
             />
 
             <bulk-edit-modal
@@ -300,6 +369,7 @@
               <c-input-confirm
                 show-icon
                 :tooltip="$t('recordList.tooltip.deleteSelected')"
+                :button-style="{ width: '2rem', height: '2rem' }"
                 @confirmed="handleDeleteSelectedRecords()"
               />
             </template>
@@ -421,7 +491,7 @@
               v-for="(item, index) in items"
               :key="`${index}${item.r.recordID}`"
               :class="{ 'pointer': isRowClickable }"
-              :variant="inlineEditing && item.r.deletedAt ? 'warning' : ''"
+              :variant="inlineEditing && (dirtyInlineRecords[item.id] || item.r.deletedAt) ? 'warning' : ''"
               @click="handleRowClick(item)"
             >
               <b-td
@@ -467,7 +537,7 @@
                 :key="field.key"
               >
                 <field-editor
-                  v-if="field.moduleField.canUpdateRecordValue && field.editable"
+                  v-if="field.moduleField.canUpdateRecordValue && field.editable && isFieldEditable(field.moduleField)"
                   :field="field.moduleField"
                   value-only
                   :record="item.r"
@@ -477,6 +547,7 @@
                   class="mb-0"
                   style="min-width: 250px;"
                   @click.stop
+                  @change="onInlineFieldChange(item)"
                 />
 
                 <div
@@ -536,148 +607,204 @@
 
               <b-td
                 class="actions px-2"
+                :class="{ 'actions-visible': inlineEditing && !editing && showSaveAction(item) }"
                 @click.stop
               >
-                <b-dropdown
-                  v-if="areActionsVisible(item.r)"
-                  boundary="viewport"
-                  variant="outline-extra-light"
-                  toggle-class="d-flex align-items-center justify-content-center text-primary border-0 py-2"
-                  no-caret
-                  dropleft
-                  menu-class="m-0"
+                <div
+                  class="d-flex align-items-center justify-content-end gap-1"
+                  :class="{ 'mt-2': inlineEditing }"
                 >
-                  <template #button-content>
-                    <font-awesome-icon
-                      :icon="['fas', 'ellipsis-v']"
-                    />
-                  </template>
+                  <b-spinner
+                    v-if="processingInlineRecords[item.id] === 'save'"
+                    small
+                    class="text-primary"
+                  />
 
-                  <template v-if="inlineEditing">
-                    <b-dropdown-item-button
-                      v-if="isCloneRecordActionVisible"
-                      @click="handleCloneInline(item.r)"
-                    >
-                      <font-awesome-icon
-                        :icon="['far', 'clone']"
-                        class="text-primary"
-                      />
-                      {{ $t('recordList.record.tooltip.clone') }}
-                    </b-dropdown-item-button>
-
-                    <c-input-confirm
-                      v-if="isInlineRestoreActionVisible(item.r)"
-                      :text="$t('recordList.record.tooltip.restore')"
-                      :icon="['fas', 'trash-restore']"
-                      show-icon
-                      borderless
-                      variant="link"
-                      variant-ok="warning"
-                      size="md"
-                      button-class="dropdown-item"
-                      icon-class="text-warning"
-                      class="w-100"
-                      @confirmed="handleRestoreInline(item, index)"
-                    />
-
-                    <!-- The user should be able to delete the record if it's not yet saved -->
-                    <b-dropdown-item-button
-                      v-else-if="isInlineDeleteActionVisible(item.r)"
-                      @click.prevent="handleDeleteInline(item, index)"
-                    >
-                      <font-awesome-icon
-                        :icon="['far', 'trash-alt']"
-                        class="text-danger"
-                      />
-                      {{ $t('recordList.record.tooltip.delete') }}
-                    </b-dropdown-item-button>
-                  </template>
-
-                  <template
-                    v-else
+                  <b-button
+                    v-else-if="inlineEditing && !editing && showSaveAction(item)"
+                    v-b-tooltip.noninteractive.hover="{ title: $t('recordList.tooltip.saveChanges'), boundary: 'body', delay: { show: 300 } }"
+                    variant="outline-extra-light"
+                    class="d-flex align-items-center justify-content-center border-0"
+                    style="width: 2rem; height: 2rem;"
+                    :disabled="!!processingInlineRecords[item.id]"
+                    @click.stop="handleSaveInline(item, index)"
                   >
-                    <b-dropdown-item
-                      v-if="isViewRecordActionVisible(item.r)"
-                      :to="viewRecordRoute(item.r.recordID)"
-                    >
-                      <font-awesome-icon
-                        :icon="['far', 'file-alt']"
-                        class="text-primary"
-                      />
-                      {{ $t('recordList.record.tooltip.view') }}
-                    </b-dropdown-item>
-
-                    <b-dropdown-item
-                      v-if="isEditRecordActionVisible(item.r)"
-                      :to="editRecordRoute(item.r.recordID)"
-                    >
-                      <font-awesome-icon
-                        :icon="['far', 'edit']"
-                        class="text-primary"
-                      />
-                      {{ $t('recordList.record.tooltip.edit') }}
-                    </b-dropdown-item>
-
-                    <b-dropdown-item-button
-                      v-if="isCloneRecordActionVisible"
-                      @click="handleCloneRecordAction(item.r.recordID, item.r.values)"
-                    >
-                      <font-awesome-icon
-                        :icon="['far', 'clone']"
-                        class="text-primary"
-                      />
-                      {{ $t('recordList.record.tooltip.clone') }}
-                    </b-dropdown-item-button>
-
-                    <b-dropdown-item-button
-                      v-if="isReminderActionVisible"
-                      @click="createReminder(item.r)"
-                    >
-                      <font-awesome-icon
-                        :icon="['far', 'bell']"
-                        class="text-primary"
-                      />
-                      {{ $t('recordList.record.tooltip.reminder') }}
-                    </b-dropdown-item-button>
-
-                    <c-permissions-button
-                      v-if="isRecordPermissionButtonVisible(item.r)"
-                      :resource="`corteza::compose:record/${item.r.namespaceID}/${item.r.moduleID}/${item.r.recordID}`"
-                      :target="item.r.recordID"
-                      :title="item.r.recordID"
-                      :button-label="$t('recordList.record.tooltip.permissions')"
-                      class="dropdown-item"
+                    <font-awesome-icon
+                      :icon="['fas', 'check']"
+                      class="text-primary"
                     />
+                  </b-button>
 
-                    <c-input-confirm
-                      v-if="isDeleteActionVisible(item.r)"
-                      :text="$t('recordList.record.tooltip.delete')"
-                      show-icon
-                      borderless
-                      variant="link"
-                      size="md"
-                      button-class="dropdown-item"
-                      icon-class="text-danger"
-                      class="w-100"
-                      @confirmed="handleDeleteSelectedRecords(item.r.recordID)"
-                    />
+                  <b-spinner
+                    v-if="processingInlineRecords[item.id] === 'deny'"
+                    small
+                    class="text-secondary"
+                  />
 
-                    <c-input-confirm
-                      v-else-if="isRestoreActionVisible(item.r)"
-                      :text="$t('recordList.record.tooltip.restore')"
-                      :icon="['fas', 'trash-restore']"
-                      show-icon
-                      borderless
-                      variant="link"
-                      variant-ok="warning"
-                      size="md"
-                      button-class="dropdown-item"
-                      icon-class="text-warning"
-                      class="w-100"
-                      @confirmed="handleRestoreSelectedRecords(item.r.recordID)"
+                  <b-button
+                    v-else-if="inlineEditing && !editing && showSaveAction(item)"
+                    v-b-tooltip.noninteractive.hover="{ title: $t('recordList.tooltip.discardChanges'), boundary: 'body', delay: { show: 300 } }"
+                    variant="outline-extra-light"
+                    class="d-flex align-items-center justify-content-center border-0"
+                    style="width: 2rem; height: 2rem;"
+                    :disabled="!!processingInlineRecords[item.id]"
+                    @click.stop="handleDenyInline(item, index)"
+                  >
+                    <font-awesome-icon
+                      :icon="['fas', 'times']"
+                      class="text-secondary"
                     />
-                  </template>
-                </b-dropdown>
+                  </b-button>
+
+                  <div
+                    v-if="inlineEditing && !editing && showSaveAction(item) && areActionsVisible(item.r)"
+                    class="border-left mx-1"
+                    style="height: 1.5rem;"
+                  />
+
+                  <b-dropdown
+                    v-if="areActionsVisible(item.r)"
+                    boundary="viewport"
+                    variant="outline-extra-light"
+                    toggle-class="d-flex align-items-center justify-content-center border-0"
+                    :toggle-attrs="{ style: 'width: 2rem; height: 2rem;' }"
+                    no-caret
+                    dropleft
+                    menu-class="m-0"
+                  >
+                    <template #button-content>
+                      <font-awesome-icon
+                        :icon="['fas', 'ellipsis-v']"
+                        class="text-primary"
+                      />
+                    </template>
+
+                    <template v-if="inlineEditing && editing">
+                      <b-dropdown-item-button
+                        v-if="isCloneRecordActionVisible"
+                        @click="handleCloneInline(item.r)"
+                      >
+                        <font-awesome-icon
+                          :icon="['far', 'clone']"
+                          class="text-primary"
+                        />
+                        {{ $t('recordList.record.tooltip.clone') }}
+                      </b-dropdown-item-button>
+
+                      <c-input-confirm
+                        v-if="isInlineRestoreActionVisible(item.r)"
+                        :text="$t('recordList.record.tooltip.restore')"
+                        :icon="['fas', 'trash-restore']"
+                        show-icon
+                        borderless
+                        variant="link"
+                        variant-ok="warning"
+                        size="md"
+                        button-class="dropdown-item"
+                        icon-class="text-warning"
+                        class="w-100"
+                        @confirmed="handleRestoreInline(item, index)"
+                      />
+
+                      <!-- The user should be able to delete the record if it's not yet saved -->
+                      <b-dropdown-item-button
+                        v-else-if="isInlineDeleteActionVisible(item.r)"
+                        @click.prevent="handleDeleteInline(item, index)"
+                      >
+                        <font-awesome-icon
+                          :icon="['far', 'trash-alt']"
+                          class="text-danger"
+                        />
+                        {{ $t('recordList.record.tooltip.delete') }}
+                      </b-dropdown-item-button>
+                    </template>
+
+                    <template
+                      v-else
+                    >
+                      <b-dropdown-item
+                        v-if="isViewRecordActionVisible(item.r)"
+                        :to="viewRecordRoute(item.r.recordID)"
+                      >
+                        <font-awesome-icon
+                          :icon="['far', 'file-alt']"
+                          class="text-primary"
+                        />
+                        {{ $t('recordList.record.tooltip.view') }}
+                      </b-dropdown-item>
+
+                      <b-dropdown-item
+                        v-if="isEditRecordActionVisible(item.r)"
+                        :to="editRecordRoute(item.r.recordID)"
+                      >
+                        <font-awesome-icon
+                          :icon="['far', 'edit']"
+                          class="text-primary"
+                        />
+                        {{ $t('recordList.record.tooltip.edit') }}
+                      </b-dropdown-item>
+
+                      <b-dropdown-item-button
+                        v-if="isCloneRecordActionVisible"
+                        @click="handleCloneRecordAction(item.r.recordID, item.r.values)"
+                      >
+                        <font-awesome-icon
+                          :icon="['far', 'clone']"
+                          class="text-primary"
+                        />
+                        {{ $t('recordList.record.tooltip.clone') }}
+                      </b-dropdown-item-button>
+
+                      <b-dropdown-item-button
+                        v-if="isReminderActionVisible"
+                        @click="createReminder(item.r)"
+                      >
+                        <font-awesome-icon
+                          :icon="['far', 'bell']"
+                          class="text-primary"
+                        />
+                        {{ $t('recordList.record.tooltip.reminder') }}
+                      </b-dropdown-item-button>
+
+                      <c-permissions-button
+                        v-if="isRecordPermissionButtonVisible(item.r)"
+                        :resource="`corteza::compose:record/${item.r.namespaceID}/${item.r.moduleID}/${item.r.recordID}`"
+                        :target="item.r.recordID"
+                        :title="item.r.recordID"
+                        :button-label="$t('recordList.record.tooltip.permissions')"
+                        class="dropdown-item"
+                      />
+
+                      <c-input-confirm
+                        v-if="isDeleteActionVisible(item.r)"
+                        :text="$t('recordList.record.tooltip.delete')"
+                        show-icon
+                        borderless
+                        variant="link"
+                        size="md"
+                        button-class="dropdown-item"
+                        icon-class="text-danger"
+                        class="w-100"
+                        @confirmed="handleDeleteSelectedRecords(item.r.recordID)"
+                      />
+
+                      <c-input-confirm
+                        v-else-if="isRestoreActionVisible(item.r)"
+                        :text="$t('recordList.record.tooltip.restore')"
+                        :icon="['fas', 'trash-restore']"
+                        show-icon
+                        borderless
+                        variant="link"
+                        variant-ok="warning"
+                        size="md"
+                        button-class="dropdown-item"
+                        icon-class="text-warning"
+                        class="w-100"
+                        @confirmed="handleRestoreSelectedRecords(item.r.recordID)"
+                      />
+                    </template>
+                  </b-dropdown>
+                </div>
               </b-td>
             </b-tr>
           </draggable>
@@ -975,6 +1102,10 @@ export default {
 
   data () {
     return {
+      inlineErrors: new validator.Validated(),
+      dirtyInlineRecords: {},
+      processingDirtyRecords: '',
+      processingInlineRecords: {},
       uniqueID: undefined,
 
       processing: false,
@@ -1064,6 +1195,10 @@ export default {
       return this.showPagination || this.options.customSummaries
     },
 
+    searchSubmittable () {
+      return (this.options.searchSubmitMode || 'submit') !== 'typing'
+    },
+
     perPageOptions () {
       const defaultText = this.options.perPage === 0 ? this.$t('general:label.all') : this.options.perPage.toString()
       return [
@@ -1108,7 +1243,7 @@ export default {
     },
 
     isRowClickable () {
-      return !(this.options.editable && this.editing) && this.options.recordDisplayOption !== 'doNothing'
+      return !this.inlineEditing && this.options.recordDisplayOption !== 'doNothing'
     },
 
     showPerPageSelector () {
@@ -1123,7 +1258,7 @@ export default {
     },
 
     inlineEditing () {
-      return !!this.options.editable && !!this.editing
+      return !!this.options.editable
     },
 
     /**
@@ -1173,7 +1308,7 @@ export default {
     fields () {
       let fields = []
 
-      const editable = (!this.options.editable || !this.editing)
+      const editable = !this.inlineEditing
         ? []
         : this.options.editFields.map(({ name }) => name)
 
@@ -1273,6 +1408,32 @@ export default {
       }).filter(({ filter }) => filter.length)
     },
 
+    // Groups consecutive AND-connected filter groups together for visual display
+    // Result: [ { groups: [G1, G2], connector: 'OR' }, { groups: [G3], connector: null } ]
+    groupedByConnector () {
+      const result = []
+      let currentAndGroup = []
+
+      this.groupRecordListFilter.forEach((group, idx) => {
+        const condition = group.groupCondition || 'OR'
+
+        if (idx === 0 || condition === 'AND') {
+          currentAndGroup.push({ ...group, originalIndex: idx })
+        } else {
+          if (currentAndGroup.length) {
+            result.push({ groups: currentAndGroup, connector: 'OR' })
+          }
+          currentAndGroup = [{ ...group, originalIndex: idx }]
+        }
+      })
+
+      if (currentAndGroup.length) {
+        result.push({ groups: currentAndGroup, connector: null })
+      }
+
+      return result
+    },
+
     listSummaries () {
       return [
         ...this.options.summaries.filter(s => s.metric && s.field && this.isUserRoleMember(s.roles)),
@@ -1295,6 +1456,10 @@ export default {
           value,
         }
       })
+    },
+
+    dirtyRecordsCount () {
+      return this.items.filter(item => this.showSaveAction(item)).length
     },
   },
 
@@ -1371,7 +1536,9 @@ export default {
       }
     },
 
-    refreshOnRelatedRecordsUpdate ({ moduleID } = {}) {
+    refreshOnRelatedRecordsUpdate ({ moduleID, excludeUniqueID } = {}) {
+      if (excludeUniqueID === this.uniqueID) return
+
       if (this.recordListModule.moduleID === moduleID) {
         this.refresh(true)
       } else {
@@ -1404,6 +1571,11 @@ export default {
     handleSearch (searchQuery) {
       this.query = searchQuery ? searchQuery.trim() : null
       this.refresh(true)
+    },
+
+    onSearchInput (searchQuery) {
+      if (this.searchSubmittable) return
+      this.handleSearch(searchQuery)
     },
 
     onSaveFilterPreset (filter = []) {
@@ -1488,16 +1660,17 @@ export default {
       this.refresh(true)
     },
 
-    // Grabs errors specific to this record item
     recordErrors (item, field) {
       const id = `${item.id}:${field.key}`
+      const errors = new validator.Validated()
 
-      if (!this.errors) {
-        this.$emit('errors', { errors: undefined, id })
-        return new validator.Validated()
+      if (this.errors) {
+        errors.push(...this.errors.filterByMeta('id', item.id).filterByMeta('field', field.key).get())
       }
 
-      const errors = this.errors.filterByMeta('id', item.id).filterByMeta('field', field.key)
+      if (this.inlineErrors) {
+        errors.push(...this.inlineErrors.filterByMeta('id', item.id).filterByMeta('field', field.key).get())
+      }
 
       if (errors.set.length > 0) {
         this.$emit('errors', { errors, id })
@@ -1594,6 +1767,286 @@ export default {
     handleCloneInline (r) {
       r = new compose.Record(r.module, { ...r.values })
       this.items.splice(0, 0, this.wrapRecord(r))
+    },
+
+    onInlineFieldChange (item) {
+      if (!this.dirtyInlineRecords[item.id]) {
+        this.$set(this.dirtyInlineRecords, item.id, true)
+      }
+    },
+
+    showSaveAction (item) {
+      if (!this.recordListModule) return false
+      const r = item.r
+      // If deleted, we can "save" to actually delete it, or if it has NoID we can just remove it
+      if (r.deletedAt) return true
+
+      const { canCreateRecord } = this.recordListModule
+      const { canUpdateRecord } = r
+
+      if (r.recordID === NoID) {
+        return canCreateRecord
+      }
+
+      // Check if dirty
+      if (!this.dirtyInlineRecords[item.id]) {
+        return false
+      }
+
+      return canUpdateRecord
+    },
+
+    async handleSaveInline (item, index) {
+      if (!this.recordListModule) return
+      this.$set(this.processingInlineRecords, item.id, 'save')
+
+      const isNew = item.r.recordID === NoID
+      let action = 'update'
+      if (item.r.deletedAt) {
+        action = 'delete'
+      } else if (isNew) {
+        action = 'create'
+      }
+
+      this.inlineErrors = this.inlineErrors.filter(e => e.meta.id !== item.id)
+
+      try {
+        // Handle deletion
+        if (item.r.deletedAt) {
+          if (isNew) {
+            this.items.splice(index, 1)
+            return
+          }
+          await this.$ComposeAPI.recordDelete(item.r)
+          this.items.splice(index, 1)
+          this.toastSuccess(this.$t('notification:record.deleteSuccess'))
+          const excludeUniqueID = Object.keys(this.dirtyInlineRecords).length > 0 ? this.uniqueID : undefined
+          this.$root.$emit('module-records-updated', { moduleID: this.recordListModule.moduleID, excludeUniqueID })
+          return
+        }
+
+        // Validate
+        const v = new compose.RecordValidator(this.recordListModule)
+
+        // We only want to validate updatable fields just like in mixins/records.js
+        const fields = this.recordListModule.fields
+          .filter(({ canReadRecordValue, canUpdateRecordValue }) => canReadRecordValue && canUpdateRecordValue)
+          .map(({ name }) => name)
+
+        const err = v.run(item.r, ...fields)
+
+        if (!err.valid()) {
+          const fieldNames = new Set(err.set.map(e => {
+            const f = this.recordListModule.fields.find(f => f.name === e.meta.field)
+            return f?.label || e.meta.field
+          }))
+
+          err.get().forEach(e => {
+            e.meta.id = item.id
+          })
+          this.inlineErrors.push(...err.get())
+
+          this.toastWarning(this.$t('notification:record.validationErrors', { fields: Array.from(fieldNames).join(', ') }))
+          return
+        }
+
+        let saved
+        if (isNew) {
+          saved = await this.$ComposeAPI.recordCreate(item.r)
+        } else {
+          saved = await this.$ComposeAPI.recordUpdate(item.r)
+        }
+
+        this.$delete(this.dirtyInlineRecords, item.id)
+
+        const newRecord = new compose.Record(this.recordListModule, saved)
+        this.items.splice(index, 1, this.wrapRecord(newRecord))
+
+        this.toastSuccess(this.$t(`notification:record.${isNew ? 'create' : 'update'}Success`))
+        const excludeUniqueID = Object.keys(this.dirtyInlineRecords).length > 0 ? this.uniqueID : undefined
+        this.$root.$emit('module-records-updated', { moduleID: this.recordListModule.moduleID, excludeUniqueID })
+      } catch (e) {
+        const { details = undefined } = e
+
+        if (details && Array.isArray(details) && details.length > 0) {
+          const errs = details.filter(d => !d.kind.includes('warning')).map(d => {
+            return { ...d, meta: { ...d.meta, id: item.id } }
+          })
+          this.inlineErrors.push(...errs)
+        }
+
+        this.toastErrorHandler(this.$t(`notification:record.${action}Failed`))(e)
+      } finally {
+        this.$delete(this.processingInlineRecords, item.id)
+      }
+    },
+
+    async handleDenyInline (item, index) {
+      if (!this.recordListModule) return
+
+      this.$set(this.processingInlineRecords, item.id, 'deny')
+      this.$delete(this.dirtyInlineRecords, item.id)
+      this.inlineErrors = this.inlineErrors.filter(e => e.meta.id !== item.id)
+
+      const isNew = item.r.recordID === NoID
+
+      if (isNew) {
+        this.items.splice(index, 1)
+        this.$delete(this.processingInlineRecords, item.id)
+      } else {
+        try {
+          const freshRecord = await this.$ComposeAPI.recordRead(item.r)
+          const clean = new compose.Record(this.recordListModule, freshRecord)
+          this.items.splice(index, 1, this.wrapRecord(clean))
+        } catch (e) {
+          this.toastErrorHandler(this.$t('notification:record.loadFailed'))(e)
+        } finally {
+          this.$delete(this.processingInlineRecords, item.id)
+        }
+      }
+    },
+
+    async handleSaveDirtyRecords () {
+      if (!this.recordListModule) return
+
+      const itemsToSave = this.items.filter(item => {
+        if (!this.showSaveAction(item)) return false
+        if (this.selected.length > 0) return this.selected.includes(item.id)
+        return true
+      })
+
+      if (!itemsToSave.length) return
+
+      this.processingDirtyRecords = 'save'
+      let hasError = false
+
+      // We only want to validate updatable fields just like in mixins/records.js
+      const fields = this.recordListModule.fields
+        .filter(({ canReadRecordValue, canUpdateRecordValue }) => canReadRecordValue && canUpdateRecordValue)
+        .map(({ name }) => name)
+
+      for (const item of itemsToSave) {
+        const isNew = item.r.recordID === NoID
+        let action = 'update'
+        if (item.r.deletedAt) {
+          action = 'delete'
+        } else if (isNew) {
+          action = 'create'
+        }
+
+        try {
+          const index = this.items.findIndex(i => i.id === item.id)
+          if (index === -1) continue
+
+          this.inlineErrors = this.inlineErrors.filter(e => e.meta.id !== item.id)
+
+          // Handle deletion
+          if (item.r.deletedAt) {
+            if (isNew) {
+              this.items.splice(index, 1)
+            } else {
+              await this.$ComposeAPI.recordDelete(item.r)
+              this.items.splice(index, 1)
+            }
+            this.$delete(this.dirtyInlineRecords, item.id)
+            continue
+          }
+
+          // Validate
+          const v = new compose.RecordValidator(this.recordListModule)
+          const err = v.run(item.r, ...fields)
+
+          if (!err.valid()) {
+            const fieldNames = new Set(err.set.map(e => {
+              const f = this.recordListModule.fields.find(f => f.name === e.meta.field)
+              return f?.label || e.meta.field
+            }))
+
+            err.get().forEach(e => {
+              e.meta.id = item.id
+            })
+            this.inlineErrors.push(...err.get())
+
+            throw new Error(this.$t('notification:record.validationErrors', { fields: Array.from(fieldNames).join(', ') }))
+          }
+
+          let saved
+          if (isNew) {
+            saved = await this.$ComposeAPI.recordCreate(item.r)
+          } else {
+            saved = await this.$ComposeAPI.recordUpdate(item.r)
+          }
+
+          this.$delete(this.dirtyInlineRecords, item.id)
+
+          const newRecord = new compose.Record(this.recordListModule, saved)
+          this.items.splice(index, 1, this.wrapRecord(newRecord))
+        } catch (e) {
+          hasError = true
+
+          const { details = undefined } = e
+          if (details && Array.isArray(details) && details.length > 0) {
+            const errs = details.filter(d => !d.kind.includes('warning')).map(d => {
+              return { ...d, meta: { ...d.meta, id: item.id } }
+            })
+            this.inlineErrors.push(...errs)
+          }
+
+          this.toastErrorHandler(this.$t(`notification:record.${action}Failed`))(e)
+        }
+      }
+
+      this.processingDirtyRecords = ''
+
+      if (!hasError) {
+        this.selected = []
+        this.toastSuccess(this.$t('notification:record.saveSuccess'))
+        const excludeUniqueID = Object.keys(this.dirtyInlineRecords).length > 0 ? this.uniqueID : undefined
+        this.$root.$emit('module-records-updated', { moduleID: this.recordListModule.moduleID, excludeUniqueID })
+      }
+    },
+
+    async handleDenyDirtyRecords () {
+      if (!this.recordListModule) return
+
+      const itemsToDeny = this.items.filter(item => {
+        if (!this.showSaveAction(item)) return false
+        if (this.selected.length > 0) return this.selected.includes(item.id)
+        return true
+      })
+
+      if (!itemsToDeny.length) return
+
+      this.processingDirtyRecords = 'deny'
+      let hasError = false
+
+      for (const item of itemsToDeny) {
+        try {
+          const index = this.items.findIndex(i => i.id === item.id)
+          if (index === -1) continue
+
+          const isNew = item.r.recordID === NoID
+          this.$delete(this.dirtyInlineRecords, item.id)
+          this.inlineErrors = this.inlineErrors.filter(e => e.meta.id !== item.id)
+
+          if (isNew) {
+            this.items.splice(index, 1)
+          } else {
+            const freshRecord = await this.$ComposeAPI.recordRead(item.r)
+            const clean = new compose.Record(this.recordListModule, freshRecord)
+            this.items.splice(index, 1, this.wrapRecord(clean))
+          }
+        } catch (e) {
+          hasError = true
+          this.toastErrorHandler(this.$t('notification:record.loadFailed'))(e)
+        }
+      }
+
+      this.processingDirtyRecords = ''
+
+      if (!hasError) {
+        this.selected = []
+      }
     },
 
     // Sanitizes record list config and
@@ -1696,46 +2149,57 @@ export default {
       this.$root.$emit('rightPanel.toggle', true)
     },
 
-    onExport (e) {
+    async onExport (e) {
       this.processing = true
 
-      const { namespaceID, moduleID } = this.filter || {}
-      const { filter, filterRaw, timezone, resolveRefs } = e
-      e = {
-        ...e,
-        namespaceID,
-        moduleID,
-        filename: `${this.namespace.slug || namespaceID} - ${this.recordListModule.name}`,
-      }
+      try {
+        const { namespaceID, moduleID } = this.filter || {}
+        const { filter, filterRaw, timezone, includeRefID } = e
 
-      if (filterRaw.rangeType === 'range') {
-        e.filename += ` - ${filterRaw.date.start} - ${filterRaw.date.end}`
-      } else {
-        e.filename += ` - ${filterRaw.rangeType}`
-      }
+        let filename = `${this.namespace.slug || namespaceID} - ${this.recordListModule.name}`
+        if (filterRaw.rangeType === 'range') {
+          filename += ` - ${filterRaw.date.start} - ${filterRaw.date.end}`
+        } else {
+          filename += ` - ${filterRaw.rangeType}`
+        }
+        if (timezone) {
+          filename += ` - ${timezone.label}`
+        }
+        filename = encodeURIComponent(filename.replace(/\./g, '-'))
 
-      if (timezone) {
-        e.filename += ` - ${timezone.label}`
-      }
+        // Exporter emits URI-encoded values for the legacy GET flow; decode
+        // them so we can send raw values in the POST body.
+        const decode = v => (typeof v === 'string' ? decodeURIComponent(v) : v)
 
-      // Make sure the generated filename won't break the URL
-      e.filename = encodeURIComponent(e.filename.replace(/\./g, '-'))
-
-      const exportUrl = url.Make({
-        url: `${this.$ComposeAPI.baseURL}${this.$ComposeAPI.recordExportEndpoint(e)}`,
-        query: {
-          fields: e.fields,
-          // url.Make already URL encodes the the values, so the filter shouldn't be encoded
-          multiValueDelimiter: e.multiValueDelimiter,
-          filter: this.selectedAllRecords ? this.bulkQuery : filter,
-          jwt: this.$auth.accessToken,
+        const { sessionID } = await this.$ComposeAPI.recordExportInit({
+          namespaceID,
+          moduleID,
+          filename,
+          ext: e.ext,
+          filter: this.selectedAllRecords ? this.bulkQuery : decode(filter),
+          fields: decode(e.fields).split(','),
           timezone: timezone ? timezone.tzCode : undefined,
-          resolveRefs,
-        },
-      })
+          multiValueDelimiter: decode(e.multiValueDelimiter),
+          wrapMultiValue: decode(e.wrapMultiValue),
+          resolveRefs: true,
+          includeRefID: decode(includeRefID) === 'true',
+        })
 
-      window.open(exportUrl)
-      this.processing = false
+        const downloadUrl = url.Make({
+          url: `${this.$ComposeAPI.baseURL}${this.$ComposeAPI.recordExportPullEndpoint({
+            namespaceID, moduleID, sessionID, filename, ext: e.ext,
+          })}`,
+          query: {
+            jwt: this.$auth.accessToken,
+          },
+        })
+
+        window.open(downloadUrl)
+      } catch (err) {
+        this.toastErrorHandler(this.$t('notification:record.exportFailed'))(err)
+      } finally {
+        this.processing = false
+      }
     },
 
     handleRowClick ({ r: { recordID } }) {
@@ -1743,7 +2207,7 @@ export default {
         return
       }
 
-      if ((this.options.editable && this.editing) || (!this.recordPageID && !this.options.rowViewUrl)) {
+      if (this.inlineEditing || (!this.recordPageID && !this.options.rowViewUrl)) {
         return
       }
 
@@ -1835,7 +2299,7 @@ export default {
     },
 
     handleRestoreSelectedRecords (recordID) {
-      if (this.inlineEditing) {
+      if (this.inlineEditing && this.editing) {
         const sel = new Set(this.selected)
         this.items.forEach((item, index) => {
           if (sel.has(item.id)) {
@@ -1865,7 +2329,7 @@ export default {
     },
 
     handleDeleteSelectedRecords (recordID) {
-      if (this.inlineEditing) {
+      if (this.inlineEditing && this.editing) {
         const sel = new Set(this.selected)
         for (let i = 0; i < this.items.length; i++) {
           if (sel.has(this.items[i].id)) {
@@ -2014,15 +2478,19 @@ export default {
             this.fetchUsers(fields, records),
             this.fetchRecords(namespaceID, fields, records),
           ]).then(() => {
+            this.dirtyInlineRecords = {}
+            this.inlineErrors = new validator.Validated()
+            this.processingInlineRecords = {}
             this.items = records.map(r => this.wrapRecord(r))
             this.processing = false
           })
         }).catch((e) => {
-          if (!axios.isCancel(e)) {
-            this.toastErrorHandler(this.$t('notification:record.listLoadFailed'))(e)
-          } else {
+          if (axios.isCancel(e)) {
             this.cancelled = true
+            return
           }
+
+          this.toastErrorHandler(this.$t('notification:record.listLoadFailed'))(e)
           this.processing = false
         }).finally(() => {
           this.cancelled = false
@@ -2226,7 +2694,7 @@ export default {
     },
 
     areActionsVisible (record) {
-      if (this.inlineEditing) {
+      if (this.inlineEditing && this.editing) {
         return [
           this.isCloneRecordActionVisible,
           this.isInlineDeleteActionVisible(record),
@@ -2352,10 +2820,21 @@ export default {
     },
 
     removeFilter (groupIndex, filterIndex) {
-      this.recordListFilter = this.groupRecordListFilter
-      this.recordListFilter[groupIndex].filter = (this.recordListFilter[groupIndex].filter || []).filter((_, index) => index !== filterIndex)
+      // Remove the filter from the group
+      if (this.recordListFilter[groupIndex]) {
+        this.recordListFilter[groupIndex].filter = (this.recordListFilter[groupIndex].filter || []).filter((_, index) => index !== filterIndex)
 
-      // If this was the last filter, reset to empty (same as resetFilter)
+        // If the group is now empty, remove the entire group
+        if (!this.recordListFilter[groupIndex].filter.length) {
+          // If this was the first group and there's a next group, clear its groupCondition
+          if (groupIndex === 0 && this.recordListFilter[1]) {
+            this.recordListFilter[1].groupCondition = 'OR'
+          }
+          this.recordListFilter.splice(groupIndex, 1)
+        }
+      }
+
+      // If no filters left, reset completely
       const hasAnyFilters = this.recordListFilter.some(group => group.filter && group.filter.length > 0)
       if (!hasAnyFilters) {
         this.onFilter()
@@ -2590,8 +3069,10 @@ th {
 
 tr:hover td.actions {
   opacity: 1;
-  z-index: 1;
-  background-color: var(--light);
+
+  &:not(.actions-visible) {
+    background-color: var(--light);
+  }
 }
 
 .inline-actions {
@@ -2632,6 +3113,11 @@ tr:hover .inline-actions {
     transition: opacity 0.25s;
     width: 1%;
     font-family: var(--font-regular) !important;
+    z-index: 3;
+
+    &.actions-visible {
+      opacity: 1;
+    }
   }
 
   tbody {

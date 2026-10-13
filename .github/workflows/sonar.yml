@@ -7,6 +7,7 @@ on:
     types: [opened, synchronize, reopened]
 jobs:
   sonarqube:
+    if: "${{ github.repository == 'cortezaproject/corteza' }}"
     name: SonarQube
     runs-on: ubuntu-22.04
     steps:

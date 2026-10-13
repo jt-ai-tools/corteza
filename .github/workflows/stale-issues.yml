@@ -11,6 +11,7 @@ on:
 
 jobs:
   stale:
+    if: "${{ github.repository == 'cortezaproject/corteza' }}"
     runs-on: ubuntu-22.04
     permissions:
       issues: write

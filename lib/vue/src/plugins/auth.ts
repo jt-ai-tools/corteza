@@ -146,6 +146,7 @@ export class Auth {
    */
   private refreshTimeout?: number
   private expiresIn: number
+  private listenersBound = false
 
   private $emit?: (event: string, ...args: unknown[]) => unknown
 
@@ -225,14 +226,10 @@ export class Auth {
   async handle (req: URL = new URL(this.entrypointURL)): Promise<AuthInfo | null> {
     this.log.info('handling authentication')
 
-    // State management
-    const dup = this.handleStateManagement()
-    if (dup) {
-      this.log.debug('duplicate tab: unauthorized')
-      throw new Error('Unauthenticated')
-    }
-
-    // Handle auth callback requests
+    // Handle auth callback requests first — a callback URL is an unambiguous signal
+    // that we just came back from the auth server. Running dup-detection here would
+    // falsely flag this load and would also set the dup flag on top of the cleanFlags()
+    // call inside handleCallbackRoute, leaking the flag into the post-redirect handle().
     const params = new URLSearchParams(req.search)
     if (this.isCallback(req.pathname) && (params.has('error') || params.has('code'))) {
       if (params.has('error')) {
@@ -241,6 +238,16 @@ export class Auth {
 
       this.log.info('handling authentication callback')
       return this.handleCallbackRoute(params.get('state'), (params.has('code') ? params.get('code') as string : ''))
+    }
+
+    // Duplicate-tab detection: when a tab is cloned via window.open / tab duplication,
+    // sessionStorage is copied and the final-state flag comes along. Throw so the caller
+    // restarts the full auth flow — that path uses the auth-server session cookie and
+    // issues independent tokens, leaving the original tab untouched.
+    const dup = this.handleStateManagement()
+    if (dup) {
+      this.log.debug('duplicate tab: unauthorized')
+      throw new Error('Unauthenticated')
     }
 
     // Handle auth from the current system state
@@ -270,6 +277,9 @@ export class Auth {
   }
 
   bindListeners (): void {
+    if (this.listenersBound) return
+    this.listenersBound = true
+
     // binding multiple listeners for cases where some browser refuser
     // to emit one of them.
     this.registerEventListener('pagehide', () => {
@@ -302,6 +312,7 @@ export class Auth {
       const key = this.sessionStorage.key(i)
       if (key !== null && stateKey.test(key)) {
         this.sessionStorage.removeItem(key)
+        i-- // compensate for shifted indices after removal
       }
     }
   }
@@ -339,9 +350,27 @@ export class Auth {
     this.log.info('authorization code received', code)
     const rsp = await this.exchangeCode(code)
 
-    this.log.info('redirecting back to final destination', finalLocation)
+    // Defensively strip the OAuth `code` from the URL we're about to navigate
+    // to — it's a one-shot secret and must not be exposed in the address bar.
+    const cleanFinal = new URL(finalLocation)
+    cleanFinal.searchParams.delete('code')
+    const cleanFinalStr = cleanFinal.toString()
+
+    this.log.info('redirecting back to final destination', cleanFinalStr)
     this.cleanFlags()
-    this.location.assign(finalLocation)
+
+    // Synchronously rewrite the address bar to the clean destination before
+    // navigating. location.assign() only schedules the navigation, so any code
+    // that runs after handle() resolves (e.g. the app.js .then() tail) would
+    // otherwise still see the callback URL with `?code=…` and could race the
+    // pending assign with its own location.replace(), clobbering the redirect
+    // — this is what made record links opened in a new tab end up on
+    // /compose/namespaces.
+    if (typeof window !== 'undefined' && window.history && typeof window.history.replaceState === 'function') {
+      window.history.replaceState(null, '', cleanFinalStr)
+    }
+
+    this.location.assign(cleanFinalStr)
     return rsp
   }
 
@@ -383,7 +412,10 @@ export class Auth {
         this[user] = authUser
 
         this.bindListeners()
-        return data
+        return {
+          accessTokenFn: this.accessTokenFn,
+          user: authUser,
+        }
       }).catch((error) => {
         this.log.error('data fetch form info endpoint failed', { oauth2InfoURL, headers, error })
         // assume invalid JWT and remove it

@@ -135,7 +135,10 @@ export function getFieldFilter (name, kind, query = '', operator = '=') {
       const endDate = moment(query.end, 'YYYY-MM-DD', true)
 
       if (startDate.isValid() && endDate.isValid()) {
-        return build(operator, name, `DATE('${query.start}') DATE('${query.end}')`)
+        // Compare on the field's date part so a date-only range is inclusive of the
+        // whole end day; otherwise DATE('end') resolves to midnight and records
+        // logged during the end day itself are excluded.
+        return build(operator, `DATE(${name})`, `DATE('${query.start}') DATE('${query.end}')`)
       }
 
       const startTime = moment(query.start, 'HH:mm', true)
@@ -160,7 +163,9 @@ export function getFieldFilter (name, kind, query = '', operator = '=') {
       if (dateTime.isValid()) {
         return build(operator, `TIMESTAMP(DATE_FORMAT(${name}, '%Y-%m-%dT%H:%i:%s.%f+00:00'))`, dataFmtEntry(dateTime))
       } else if (date.isValid()) {
-        return build(operator, name, `DATE('${query}')`)
+        // Compare on the field's date part so date-only operators (e.g. <=) include
+        // the whole day instead of resolving the value to midnight.
+        return build(operator, `DATE(${name})`, `DATE('${query}')`)
       } else if (time.isValid()) {
         return build(operator, name, `TIME('${query}')`)
       }
@@ -237,7 +242,45 @@ export function queryToFilter (searchQuery = '', prefilter = '', fields = [], re
     searchQuery = searchQuery ? `(${searchQuery})` : ''
   }
 
-  const recordListFilterSql = recordListFilter.map(({ filter = [] }) => getRecordListFilterSql(filter)).filter(filter => filter).join(' OR ')
+  // Build query with proper parenthesization for mixed AND/OR
+  // Groups connected by AND have higher precedence, so we wrap consecutive ANDs
+  const groups = recordListFilter
+    .map(({ filter = [], groupCondition }) => ({
+      sql: getRecordListFilterSql(filter),
+      condition: groupCondition || 'OR',
+    }))
+    .filter(({ sql }) => sql)
+
+  // Group consecutive ANDs together, then join with ORs for proper precedence
+  const orSegments = []
+  let andGroup = []
+
+  for (let i = 0; i < groups.length; i++) {
+    const { sql, condition } = groups[i]
+
+    if (i === 0 || condition === 'AND') {
+      andGroup.push(sql)
+    } else {
+      // OR encountered - flush AND group as its own segment
+      orSegments.push(andGroup.length > 1 ? `(${andGroup.join(' AND ')})` : andGroup[0])
+      andGroup = [sql]
+    }
+  }
+  // Flush remaining
+  if (andGroup.length) {
+    orSegments.push(andGroup.length > 1 ? `(${andGroup.join(' AND ')})` : andGroup[0])
+  }
+
+  let recordListFilterSql = orSegments.join(' OR ')
+
+  // When there is a top-level OR (more than one segment), wrap the combined
+  // filter so it is grouped before being AND-joined with the prefilter/search
+  // query. Without this, SQL operator precedence (AND binds tighter than OR)
+  // lets the last OR branch escape the prefilter:
+  // `prefilter AND (a) OR (b)` => `(prefilter AND (a)) OR (b)`.
+  if (orSegments.length > 1) {
+    recordListFilterSql = `(${recordListFilterSql})`
+  }
 
   return [prefilter, recordListFilterSql, searchQuery].filter(f => f).join(' AND ')
 }

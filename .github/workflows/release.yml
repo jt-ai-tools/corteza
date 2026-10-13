@@ -73,6 +73,7 @@ jobs:
         with: { path: ./server/webconsole/dist, key: console-build }
 
   server-release:
+    if: "${{ github.repository == 'cortezaproject/corteza' }}"
     name: "Server Release (${{ matrix.os }})"
     strategy:
       fail-fast: true
@@ -211,6 +212,7 @@ jobs:
 
 
   client-web-release:
+    if: "${{ github.repository == 'cortezaproject/corteza' }}"
     name: "Web client (${{ matrix.app }})"
     runs-on: ubuntu-22.04
     strategy:
@@ -253,6 +255,7 @@ jobs:
 ########################################################################################################################
 
   client-web-aio-release:
+    if: "${{ github.repository == 'cortezaproject/corteza' }}"
     name: "Web clients (all-in-one release)"
     runs-on: ubuntu-22.04
     needs: [ client-web-release ]
@@ -320,6 +323,7 @@ jobs:
 
 
   release:
+    if: "${{ github.repository == 'cortezaproject/corteza' }}"
     name: "Corteza (${{ matrix.os }})"
     runs-on: ubuntu-22.04
     needs: [ server-release, client-web-aio-release ]
@@ -367,6 +371,7 @@ jobs:
         run: echo "@todo add tests"
 
   extra-server-discovery-release:
+    if: "${{ github.repository == 'cortezaproject/corteza' }}"
     name: "Discovery Server release ${{ matrix.os }}"
     strategy:
       fail-fast: true
@@ -442,19 +447,19 @@ jobs:
 
       - name: "Login"
         uses: docker/login-action@v2
-        if: ${{ !env.ACT && env.DOCKER_IMAGE_TAG }}
+        if: "${{ github.repository == 'cortezaproject/corteza' && (!env.ACT && env.DOCKER_IMAGE_TAG) }}"
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: "Push ${{ env.DOCKER_IMAGE_TAG }}"
-        if: ${{ !env.ACT }}
+        if: "${{ github.repository == 'cortezaproject/corteza' && (!env.ACT) }}"
         run: |
           docker push \
             ${{ matrix.image }}:${{ env.DOCKER_IMAGE_TAG }}
 
       - name: "Push ${{ env.DOCKER_IMAGE_ALIAS }}"
-        if: ${{ !env.ACT && env.DOCKER_IMAGE_ALIAS }}
+        if: "${{ github.repository == 'cortezaproject/corteza' && (!env.ACT && env.DOCKER_IMAGE_ALIAS) }}"
         run: |
           docker tag \
             ${{ matrix.image }}:${{ env.DOCKER_IMAGE_TAG }} \
@@ -464,6 +469,7 @@ jobs:
             ${{ matrix.image }}:${{ env.DOCKER_IMAGE_ALIAS }}
 
   notify:
+    if: "${{ github.repository == 'cortezaproject/corteza' }}"
     name: "Send matrix release notification"
     runs-on: ubuntu-22.04
     needs: [ docker-images, release ]
@@ -498,6 +504,7 @@ jobs:
             # Corteza **${{ env.DOCKER_IMAGE_TAG }}** release has failed
 
   publish-release-sentry:
+    if: "${{ github.repository == 'cortezaproject/corteza' }}"
     name: "Publish release to sentry"
     runs-on: ubuntu-22.04
     needs: [ notify ]

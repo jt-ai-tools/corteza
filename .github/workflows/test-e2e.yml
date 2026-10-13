@@ -62,6 +62,7 @@ jobs:
         run: |
           echo "TMP_KEY=$(mktemp)" >> $GITHUB_ENV
 
+        if: "${{ github.repository == 'cortezaproject/corteza' }}"
       - name: Create crust key
         env:
           RELEASE_CRUST_SFTP_KEY: ${{ secrets.RELEASE_CRUST_SFTP_KEY }}
@@ -70,6 +71,7 @@ jobs:
           echo ${RELEASE_CRUST_SFTP_KEY} | base64 -d > ${RELEASE_CRUST_KEY_FILE} && \
           echo ${RELEASE_CRUST_SFTP_KEY} > /tmp/foo
 
+        if: "${{ github.repository == 'cortezaproject/corteza' }}"
       - uses: actions/setup-node@v3
         with: { node-version: '${{ env.NODE_VERSION }}' }
 
@@ -193,7 +195,7 @@ jobs:
 
       - name: Publish results
         # always() runs the step even when canceled manually
-        if: success() || failure()
+        if: "${{ github.repository == 'cortezaproject/corteza' && (success() || failure()) }}"
         working-directory: corteza-e2e-cypress
         env:
           RELEASE_CRUST_SFTP_URI: ${{ secrets.RELEASE_CRUST_SFTP_URI }}
@@ -206,7 +208,7 @@ jobs:
   notify-failure:
     needs: [server-client-setup]
     runs-on: ubuntu-22.04
-    if: failure()
+    if: "${{ github.repository == 'cortezaproject/corteza' && (failure()) }}"
     steps:
       - name: Send message on failed testing results
         uses: fadenb/matrix-chat-message@v0.0.6
